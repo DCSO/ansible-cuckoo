@@ -1,0 +1,14 @@
+[Unit]
+Description=Cuckoo Process
+After=network.target cuckoo-daemon.service elasticsearch.service
+Requires=cuckoo-daemon.service elasticsearch.service
+
+
+[Service]
+User={{ cuckoo_user }}
+WorkingDirectory={{ cuckoo_home }}
+ExecStartPre=/bin/sleep 5
+ExecStart={{ cuckoo_home }}/virtualenv/bin/cuckoo process {{ num_cuckoo_processes }}
+
+[Install]
+WantedBy=multi-user.target

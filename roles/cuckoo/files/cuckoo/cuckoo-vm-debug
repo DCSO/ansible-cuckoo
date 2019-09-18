@@ -1,0 +1,76 @@
+#!/usr/bin/env bash
+
+if [ "$USER" != "{{ cuckoo_user }}" ]
+  then echo "Please run as {{ cuckoo_user }} user"
+  exit
+fi
+
+if [ "$#" -ne 1 ]; then
+    echo "$0 <name of vm>"
+    VBoxManage list vms
+    exit
+fi
+
+
+
+start_debug()
+{
+    if [ ! -f "{{cuckoo_home}}/*.vbox-extpack" ]; then
+        wget "https://download.virtualbox.org/virtualbox/{{ virtualbox_extension_pack_version }}/Oracle_VM_VirtualBox_Extension_Pack-{{ virtualbox_extension_pack_version }}.vbox-extpack" -P "{{cuckoo_home}}"
+        su -c 'VBoxManage extpack install --replace "{{cuckoo_home}}/*.vbox-extpack"'
+    fi
+
+    VBoxManage modifyvm "$1" --vrde on
+    VBoxManage modifyvm "$1" --vrdeaddress 0.0.0.0
+    VBoxManage startvm "$1" --type headless
+    VBoxManage showvminfo "$1" | grep VRDE
+
+    echo """
+    To connect with Remmina you have to toggle the option: 'Use client resolution'. Else the programm will crash.
+    Cuckoo will always use the latest snapshot. So to save your changes on the machine execute:
+    'VBoxManage snapshot take $1 --live'
+    """
+    exit
+}
+
+stop_debug()
+{
+    VBoxManage controlvm "$1" acpipowerbutton
+    sleep 20
+    VBoxManage modifyvm "$1" --vrde off
+    VBoxManage showvminfo "$1" | grep VRDE
+    exit
+}
+
+choose_option()
+{
+
+echo """
+What do you want to do?
+"""
+
+select yn in "Start Debug" "Stop Debug"; do
+    case $yn in
+        "Start Debug" ) start_debug "$1";;
+        "Stop Debug" ) stop_debug "$1";;
+    esac
+done
+}
+
+echo """
+Do you want to enable remote vm debugging? This opens an unauthenticated
+RDP session on port 599x and starts the malware vm. To be able to do this
+the Virtualbox extension pack has to be installed which is licensed under
+PUEL (only for home use). Afterwards call this script again to disable it.
+
+Do you want to proceed?
+"""
+
+select yn in "Yes" "No"; do
+    case $yn in
+        Yes ) choose_option "$1";;
+        No ) exit;;
+    esac
+done
+
+

@@ -1,0 +1,13 @@
+[Unit]
+Description=Cuckoo Daemon
+After=network.target vboxdrv.service vboxinterfaces.service elasticsearch.service
+Requires=cuckoo-rooter.service vboxinterfaces.service vboxdrv.service elasticsearch.service
+
+[Service]
+User={{ cuckoo_user }}
+WorkingDirectory={{ cuckoo_home }}
+ExecStartPre=/bin/sleep 60
+ExecStart={{ cuckoo_home }}/virtualenv/bin/cuckoo -d -m 10000
+
+[Install]
+WantedBy=multi-user.target

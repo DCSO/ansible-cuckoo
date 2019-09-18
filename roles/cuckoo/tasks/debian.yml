@@ -1,0 +1,564 @@
+
+- name: Add debian stretch repository
+  apt_repository:
+    repo: "deb http://deb.debian.org/debian stretch main"
+    state: present
+
+# Install packages
+- name: Update cache
+  apt:
+    update_cache: yes
+    cache_valid_time: 3600
+
+- name: Install debian stretch packages not available in buster
+  apt:
+    default_release: stretch
+    name: [
+
+      # For Django webinterface
+      "mongodb",
+
+      "openjdk-8-jdk",
+      # Python library for rendering rdp in the browser
+      "libguac-client-vnc0",
+      "libguac-client-ssh0"
+    ]
+
+- name: Install needed packages for cuckoo
+  apt:
+    name: [
+
+      # Hard dependencies 1
+      "libguac-client-rdp0",
+      "python2.7",
+      "python-pip",
+      "python-dev",
+      "libffi-dev",
+      "libssl-dev",
+
+      # Hard dependencies 2
+      "python-virtualenv",
+      "python-setuptools",
+
+      # Hard dependencies 3
+      "libjpeg-dev",
+      "zlib1g-dev",
+      "swig",
+
+      "unzip",
+
+      # Needed for debug script
+      "wget",
+
+      # Virtualbox dependencie
+      "libcurl3",
+
+      # As backend database
+      "postgresql",
+      "libpq-dev",
+      "nginx",
+
+      # VirtualBox dependencies
+      "python-pexpect",
+
+      # network sniffer
+      "tcpdump",
+      "libcap2-bin", # to be able set use setcap
+
+      "volatility", # python memory forensics framework
+      "python-m2crypto", # is a crypto and SSL toolkit for Python
+
+      #"openjdk-8-jdk", # for elastic search
+      "apt-transport-https", # for elastic search
+
+      "guacd",
+      "tor", # To redirect the traffic through tor
+      "iproute2", # For per analysis routing
+    ]
+
+- name: Install needed packages for malboxes
+  apt:
+    name: [
+    "python3",
+    "python3-pip"
+    ]
+
+- name: install linux linux-headers
+  action: shell apt-get install -y linux-headers-$(uname -r)
+  ignore_errors: True
+
+- name: install linux linux-image
+  action: shell apt-get install -y linux-image-$(uname -r)
+  ignore_errors: True
+
+- name: Install python2 for python3.6 compatibility package
+  pip:
+    executable: pip3
+    name:
+      [ "python2-secrets" ]
+
+- name: Configure the Elasticsearch apt key
+  apt_key:
+    url: "https://artifacts.elastic.co/GPG-KEY-elasticsearch"
+    state: present
+
+# Elasticsearch 5 has to be used because
+# cuckoo only supports that version
+- name: Configure the Elasticsearch APT repositorie
+  apt_repository:
+    repo: "deb https://artifacts.elastic.co/packages/5.x/apt stable main"
+    state: present
+
+- name: Configure the Oracle APT key
+  apt_key:
+    url: "https://www.virtualbox.org/download/oracle_vbox_2016.asc"
+    state: present
+
+
+- name: Configure the Oracle APT key
+  apt_key:
+    url: "https://www.virtualbox.org/download/oracle_vbox.asc"
+    state: present
+
+- name: Configure the VirtualBox APT repositories
+  apt_repository:
+    repo: "deb http://download.virtualbox.org/virtualbox/debian {{ virtualbox_distribution_release }} contrib"
+    state: present
+
+# Install packages
+- name: Update cache
+  apt:
+    update_cache: yes
+    cache_valid_time: 3600
+
+- name: Install VirtualBox
+  apt:
+    pkg: "virtualbox-{{ virtualbox_version }}"
+    state: present
+    update_cache: yes
+
+- name: Install Elasticsearch
+  apt:
+    pkg: "elasticsearch"
+    state: present
+    update_cache: yes
+
+- name: Enable Elasticsearch service
+  service:
+    enabled: yes
+    state: started
+    name: elasticsearch.service
+
+# ## https://cuckoo.sh/docs/usage/rooter.html
+- name: Create cuckoo group for rooter function
+  group:
+    name: "{{ cuckoo_user }}"
+    state: present
+
+- name: Create user
+  user:
+    create_home: yes
+    name: "{{ cuckoo_user }}"
+    password: "{{ cuckoo_pwd | password_hash('sha512') }}"
+    shell: /bin/bash
+    groups: [
+    "{{ cuckoo_user }}",
+    "vboxusers"
+    ]
+    append: yes
+
+- name: remove vboxnet0
+  become: yes
+  become_user: "{{cuckoo_user}}"
+  command: vboxmanage hostonlyif remove vboxnet0
+  register: remove_vbox
+  ignore_errors: true
+
+- name: Create vboxnet
+  become: yes
+  become_user: "{{cuckoo_user}}"
+  command: vboxmanage hostonlyif create
+
+- name: Set ip of vboxnet0
+  become: yes
+  become_user: "{{cuckoo_user}}"
+  command: vboxmanage hostonlyif  ipconfig vboxnet0 --ip "{{ host_ip }}"
+
+- name: Copy vboxinterfaces service
+  template:
+    src: "{{ role_path }}/files/cuckoo/vboxinterfaces.service"
+    dest: "/lib/systemd/system/vboxinterfaces.service"
+    owner: "root"
+    group: "root"
+
+- name: Start vboxinterfaces
+  systemd:
+    state: started
+    name: vboxinterfaces.service
+    enabled: yes
+    daemon_reload: yes
+
+- name: Disable app armor for tcpdump
+  shell: aa-disable tcpdump
+  ignore_errors: true
+
+- name: Set capability on tcpdump
+  capabilities:
+    path: /usr/sbin/tcpdump
+    capability: cap_net_raw,cap_net_admin=eip
+    state: present
+
+- name: Bump up number of possible open file descriptors
+  sysctl:
+    name: fs.file-max
+    value: 2097152
+    sysctl_file: /etc/sysctl.conf
+    sysctl_set: yes
+    reload: yes
+
+- name: Delete virtualenv
+  file:
+    state: absent
+    path: "{{ cuckoo_home }}/virtualenv"
+
+
+- name: Copy over cuckoo python package
+  copy:
+    src: "{{ item }}"
+    dest: "{{ cuckoo_home }}/Cuckoo-package.tar.gz"
+  with_fileglob:
+    - "{{ role_path }}/files/cuckoo/Cuckoo-*.tar.gz"
+
+- name: Create virtualenv & install cuckoo python package
+  pip:
+    virtualenv: "{{ cuckoo_home }}/virtualenv"
+    virtualenv_python: python2.7
+    name:
+       [
+        "pip",
+        "setuptools",
+        "weasyprint==0.36",
+        "file://{{ cuckoo_home }}/Cuckoo-package.tar.gz"
+       ]
+- name: Delete cuckoo python package file
+  file:
+    state: absent
+    path: "{{ cuckoo_home }}/Cuckoo-package.tar.gz"
+
+- name: Copy over malboxes python package
+  copy:
+    src: "{{ role_path }}/files/malboxes-deps"
+    dest: "{{ cuckoo_home }}/virtualenv"
+
+- name: Uninstall malboxes with pip
+  pip:
+    executable: pip3
+    state: absent
+    name: "malboxes"
+
+- name: Install malboxes with pip
+  pip:
+    executable: pip3
+    name: "file://{{ cuckoo_home }}/virtualenv/malboxes-deps/malboxes-0.4.1.dev0.zip"
+
+- name: Remove remote malboxes package file
+  file:
+    state: absent
+    path: "{{ cuckoo_home }}/virtualenv/malboxes-deps"
+
+- name: Download and unarchive Packer.
+  unarchive:
+    src: https://releases.hashicorp.com/packer/{{ packer_version }}/packer_{{ packer_version }}_linux_amd64.zip
+    dest: "/usr/local/bin"
+    remote_src: true
+
+- name: Create malboxes config directory
+  file:
+    path: "{{ cuckoo_home }}/.config/malboxes/"
+    state: directory
+    mode: 0755
+    owner: "{{ cuckoo_user }}"
+    group: "users"
+
+- name: Create malboxes profile directory
+  file:
+    path: "{{ cuckoo_home }}/.config/malboxes/profiles"
+    state: directory
+    mode: 0755
+    owner: "{{ cuckoo_user }}"
+    group: "users"
+
+- name: Copy malboxes config
+  template:
+    src: "{{ role_path }}/files/malboxes/malboxes_config.js"
+    dest: "{{ cuckoo_home }}/.config/malboxes/config.js"
+    owner: "{{ cuckoo_user }}"
+    group: "users"
+
+- name: Copy cuckoo-malboxes profile config
+  template:
+    src: "{{ role_path }}/files/malboxes/cuckoo_profile.js"
+    dest: "{{ cuckoo_home }}/.config/malboxes/profiles/cuckoo.js"
+    owner: "{{ cuckoo_user }}"
+    group: "users"
+
+- name: Copy start_agent.ps1
+  template:
+    src: "{{ role_path }}/files/malboxes/start_agent.bat"
+    dest: "{{ cuckoo_home }}/.config/malboxes/profiles/start_agent.bat"
+    owner: "{{ cuckoo_user }}"
+    group: "users"
+
+- name: Copy guest-deps.bat
+  template:
+    src: "{{ role_path }}/files/malboxes/guest-deps.bat"
+    dest: "{{ cuckoo_home }}/.config/malboxes/profiles/guest-deps.bat"
+    owner: "{{ cuckoo_user }}"
+    group: "users"
+
+- name: Copy over guest-bins
+  copy:
+    src: "{{ role_path }}/files/guest-bins"
+    dest: "{{ cuckoo_home }}"
+    owner: "{{ cuckoo_user }}"
+    group: "users"
+
+- name: IMPORTANT
+  debug:
+    msg: "This will run a looong time. To see the progress execute systemctl -u malboxes -f on the target machine. If a powershell script on the Windows side fails, an error occurred and the build may never terminate."
+
+- name: Build win7_64 VM
+  become: yes
+  become_user: "{{ cuckoo_user }}"
+  shell: "systemd-cat -t malboxes malboxes -d build win7_64_analyst --force"
+
+- name: Remove first adapter
+  become: yes
+  become_user: "{{ cuckoo_user }}"
+  command: 'vboxmanage modifyvm "{{win7_64_boxname}}_0" --nic1 none'
+
+- name: Start Win7 VM headless
+  become: yes
+  become_user: "{{ cuckoo_user }}"
+  command: 'vboxmanage startvm "{{win7_64_boxname}}_0" --type headless'
+
+- name: Pause 45 minutes to fully boot VM
+  pause:
+    minutes: 45
+    prompt: "Do not skip this. This is needed to evade getTickCount detection"
+
+- name: Create snapshot of running Win7 vm
+  become: yes
+  become_user: "{{ cuckoo_user }}"
+  command: 'vboxmanage snapshot "{{win7_64_boxname}}_0" take snap1'
+
+- name: Stop Win7 VM headless
+  become: yes
+  become_user: "{{ cuckoo_user }}"
+  command: 'vboxmanage controlvm "{{win7_64_boxname}}_0" poweroff soft'
+
+- name: Delete old configs
+  become: yes
+  become_user: "{{ cuckoo_user }}"
+  file:
+    path: "{{ cuckoo_home }}/.cuckoo"
+    state: absent
+
+- name: Cuckoo init
+  become: yes
+  become_user: "{{ cuckoo_user }}"
+  command: "{{ cuckoo_bin }} init"
+
+- name: Configure cuckoo rooter service
+  template:
+    src: "{{ role_path }}/files/cuckoo/cuckoo-rooter.service"
+    dest: "/lib/systemd/system/cuckoo-rooter.service"
+    owner: "root"
+    group: "root"
+
+- name: Configure cuckoo web service
+  template:
+    src: "{{ role_path }}/files/cuckoo/cuckoo-web.service"
+    dest: "/lib/systemd/system/cuckoo-web.service"
+    owner: "root"
+    group: "root"
+
+- name: Configure cuckoo api service
+  template:
+    src: "{{ role_path }}/files/cuckoo/cuckoo-api.service"
+    dest: "/lib/systemd/system/cuckoo-api.service"
+    owner: "root"
+    group: "root"
+
+- name: Configure cuckoo process service
+  template:
+    src: "{{ role_path }}/files/cuckoo/cuckoo-process.service"
+    dest: "/lib/systemd/system/cuckoo-process.service"
+    owner: "root"
+    group: "root"
+
+- name: Configure cuckoo daemon service
+  template:
+    src: "{{ role_path }}/files/cuckoo/cuckoo-daemon.service"
+    dest: "/lib/systemd/system/cuckoo-daemon.service"
+    owner: "root"
+    group: "root"
+
+- name: Cuckoo download community
+  become: yes
+  become_user: "{{ cuckoo_user }}"
+  command: "{{ cuckoo_bin }} community"
+
+- name: Overwrite zer0m0n with own self signed version
+  copy:
+    src: "{{ role_path }}/files/cuckoo/zer0m0n-signed/zer0m0n-x64.sys"
+    dest: "{{ cuckoo_home }}/.cuckoo/analyzer/windows/bin/zer0m0n-x64.sys"
+
+- name: Copy memory.conf
+  template:
+    src: "{{ role_path }}/files/cuckoo/conf/memory.conf"
+    dest: "{{ cuckoo_conf }}/memory.conf"
+    owner: "{{ cuckoo_user }}"
+    group: "users"
+
+- name: Copy virtualbox.conf
+  template:
+    src: "{{ role_path }}/files/cuckoo/conf/virtualbox.conf"
+    dest: "{{ cuckoo_conf }}/virtualbox.conf"
+    owner: "{{ cuckoo_user }}"
+    group: "users"
+
+- name: Copy cuckoo.conf
+  template:
+    src: "{{ role_path }}/files/cuckoo/conf/cuckoo.conf"
+    dest: "{{ cuckoo_conf }}/cuckoo.conf"
+    owner: "{{ cuckoo_user }}"
+    group: "users"
+
+- name: Copy routing.conf
+  template:
+    src: "{{ role_path }}/files/cuckoo/conf/routing.conf"
+    dest: "{{ cuckoo_conf }}/routing.conf"
+    owner: "{{ cuckoo_user }}"
+    group: "users"
+
+- name: Create whitelist directory
+  file:
+    path: "{{ cuckoo_conf }}/whitelist"
+    state: directory
+    mode: 0755
+    owner: "{{ cuckoo_user }}"
+    group: "users"
+
+- name: Copy domain whitelist
+  template:
+    src: "{{ role_path }}/files/cuckoo/whitelist/domain.txt"
+    dest: "{{ cuckoo_conf }}/whitelist/domain.txt"
+    owner: "{{ cuckoo_user }}"
+    group: "users"
+
+- name: Copy reporting.conf
+  template:
+    src: "{{ role_path }}/files/cuckoo/conf/reporting.conf"
+    dest: "{{ cuckoo_conf }}/reporting.conf"
+    owner: "{{ cuckoo_user }}"
+    group: "users"
+
+- name: Copy auxiliary.conf
+  template:
+    src: "{{ role_path }}/files/cuckoo/conf/auxiliary.conf"
+    dest: "{{ cuckoo_conf }}/auxiliary.conf"
+    owner: "{{ cuckoo_user }}"
+    group: "users"
+
+- name: Copy processing.conf
+  template:
+    src: "{{ role_path }}/files/cuckoo/conf/processing.conf"
+    dest: "{{ cuckoo_conf }}/processing.conf"
+    owner: "{{ cuckoo_user }}"
+    group: "users"
+
+- name: Configure torrc
+  template:
+    src: "{{ role_path }}/files/cuckoo/torrc"
+    dest: "/etc/tor/torrc"
+    owner: "root"
+    group: "root"
+
+- name: Copy nginx proxy conf
+  template:
+    src: "{{ role_path }}/files/cuckoo/nginx-proxy"
+    dest: "/etc/nginx/sites-enabled/default"
+
+- name: Copy nginx cuckoo api conf
+  template:
+    src: "{{ role_path }}/files/cuckoo/cuckoo-api-nginx"
+    dest: "/etc/nginx/sites-enabled/cuckoo-api"
+
+- name: Copy over cuckoo-vm-debug
+  template:
+    src: "{{ role_path }}/files/cuckoo/cuckoo-vm-debug"
+    dest: "/usr/local/bin"
+    mode: 0755
+
+- name: Reload nginx
+  systemd:
+    state: restarted
+    name: nginx
+    enabled: yes
+    daemon_reload: yes
+
+- name: Reload tor
+  systemd:
+    state: restarted
+    name: tor
+    enabled: yes
+    daemon_reload: yes
+
+- name: Start cuckoo rooter
+  systemd:
+    state: restarted
+    name: cuckoo-rooter.service
+    enabled: yes
+    daemon_reload: yes
+
+- name: Start cuckoo daemon
+  systemd:
+    state: restarted
+    name: cuckoo-daemon.service
+    enabled: yes
+    daemon_reload: yes
+
+- name: Start cuckoo process
+  systemd:
+    state: restarted
+    name: cuckoo-process.service
+    enabled: yes
+    daemon_reload: yes
+
+- name: Start cuckoo web
+  systemd:
+    state: restarted
+    name: cuckoo-web.service
+    enabled: yes
+    daemon_reload: yes
+
+- name: Start cuckoo api
+  systemd:
+    state: restarted
+    name: cuckoo-api.service
+    enabled: yes
+    daemon_reload: yes
+
+- name: Host IP is
+  debug:
+    msg: "http://{{ ansible_default_ipv4.address }}"
+
+- name: Cuckoo user password
+  debug:
+    msg: "The cuckoo user password is: {{ cuckoo_pwd }}"
+
+- name: Api token
+  debug:
+    msg: "Can be found under {{ cuckoo_conf }}/cuckoo.conf and is reachable under http://{{ ansible_default_ipv4.address }}:8090"
+

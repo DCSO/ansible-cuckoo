@@ -1,0 +1,86 @@
+;
+; zer0m0n-x64.inf
+;
+
+[Version]
+Signature="$WINDOWS NT$"
+Class=Sample ; TODO: edit Class
+ClassGuid={78A1C341-4539-11d3-B88D-00C04FAD5171} ; TODO: edit ClassGuid
+Provider=%ManufacturerName%
+CatalogFile=zer0m0n-x64.cat
+DriverVer=04/05/2019,5.9.28.60
+
+[DestinationDirs]
+DefaultDestDir = 12
+;zer0m0n-x64_Device_CoInstaller_CopyFiles = 11
+
+; ================= Class section =====================
+
+[ClassInstall32]
+Addreg=SampleClassReg
+
+[SampleClassReg]
+HKR,,,0,%ClassName%
+HKR,,Icon,,-5
+
+[SourceDisksNames]
+1 = %DiskName%,,,""
+
+[SourceDisksFiles]
+zer0m0n-x64.sys  = 1,,
+;WdfCoInstaller$KMDFCOINSTALLERVERSION$.dll=1 ; make sure the number matches with SourceDisksNames
+
+;*****************************************
+; Install Section
+;*****************************************
+
+[Manufacturer]
+%ManufacturerName%=Standard,NTAMD64
+
+[Standard.NT$ARCH$]
+%zer0m0n-x64.DeviceDesc%=zer0m0n-x64_Device, Root\zer0m0n-x64 ; TODO: edit hw-id
+
+[zer0m0n-x64_Device.NT]
+CopyFiles=Drivers_Dir
+
+[Drivers_Dir]
+zer0m0n-x64.sys
+
+;-------------- Service installation
+[zer0m0n-x64_Device.NT.Services]
+AddService = zer0m0n-x64,%SPSVCINST_ASSOCSERVICE%, zer0m0n-x64_Service_Inst
+
+; -------------- zer0m0n-x64 driver install sections
+[zer0m0n-x64_Service_Inst]
+DisplayName    = %zer0m0n-x64.SVCDESC%
+ServiceType    = 1               ; SERVICE_KERNEL_DRIVER
+StartType      = 3               ; SERVICE_DEMAND_START
+ErrorControl   = 1               ; SERVICE_ERROR_NORMAL
+ServiceBinary  = %12%\zer0m0n-x64.sys
+
+;
+;--- zer0m0n-x64_Device Coinstaller installation ------
+;
+
+;[zer0m0n-x64_Device.NT.CoInstallers]
+;AddReg=zer0m0n-x64_Device_CoInstaller_AddReg
+;CopyFiles=zer0m0n-x64_Device_CoInstaller_CopyFiles
+
+;[zer0m0n-x64_Device_CoInstaller_AddReg]
+;HKR,,CoInstallers32,0x00010000, "WdfCoInstaller$KMDFCOINSTALLERVERSION$.dll,WdfCoInstaller"
+
+;[zer0m0n-x64_Device_CoInstaller_CopyFiles]
+;WdfCoInstaller$KMDFCOINSTALLERVERSION$.dll
+
+[zer0m0n-x64_Device.NT.Wdf]
+KmdfService =  zer0m0n-x64, zer0m0n-x64_wdfsect
+[zer0m0n-x64_wdfsect]
+KmdfLibraryVersion = $KMDFVERSION$
+
+[Strings]
+SPSVCINST_ASSOCSERVICE= 0x00000002
+ManufacturerName="Trustful Company Gmbh" ;TODO: Replace with your manufacturer name
+ClassName="Samples" ; TODO: edit ClassName
+DiskName = "zer0m0n-x64 Installation Disk"
+zer0m0n-x64.DeviceDesc = "zer0m0n-x64 Device"
+zer0m0n-x64.SVCDESC = "zer0m0n-x64 Service"

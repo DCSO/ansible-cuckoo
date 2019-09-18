@@ -1,0 +1,12 @@
+[Unit]
+Description=Cuckoo API
+After=network.target cuckoo-daemon.service
+Requires=cuckoo-daemon.service
+
+[Service]
+User={{ cuckoo_user }}
+WorkingDirectory={{ cuckoo_home }}
+ExecStart={{ cuckoo_home }}/virtualenv/bin/cuckoo api --host 127.0.0.1 --port 8091
+
+[Install]
+WantedBy=multi-user.target

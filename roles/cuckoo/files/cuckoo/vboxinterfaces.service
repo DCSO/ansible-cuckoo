@@ -1,0 +1,11 @@
+[Unit]
+Description=Start vboxnet0
+After=network.target vboxdrv.service
+
+[Service]
+User={{ cuckoo_user }}
+WorkingDirectory={{ cuckoo_home }}
+ExecStart=/bin/sh -c "/usr/bin/VBoxManage list vms && /usr/bin/VBoxManage hostonlyif ipconfig vboxnet0 --ip {{ host_ip }}"
+
+[Install]
+WantedBy=multi-user.target

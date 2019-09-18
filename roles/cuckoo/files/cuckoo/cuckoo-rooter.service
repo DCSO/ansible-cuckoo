@@ -1,0 +1,14 @@
+[Unit]
+Description=Cuckoo rooter service
+Requires=tor.service
+After=tor.service network.target
+
+[Service]
+User=root
+WorkingDirectory={{ cuckoo_home }}
+ExecStart={{ cuckoo_home }}/virtualenv/bin/cuckoo rooter
+Restart=always
+
+[Install]
+WantedBy=multi-user.target
+

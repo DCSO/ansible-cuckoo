@@ -1,0 +1,44 @@
+- name: Cuckoo Setup
+  hosts: all
+  become: yes
+  become_method: sudo
+  gather_facts: False
+
+  vars:
+    cuckoo_user: "cuckoo"
+    packer_version: "1.3.4"
+    virtualbox_distribution_release: "buster"
+    virtualbox_extension_pack_version: "6.0.4"
+    virtualbox_version: "6.0"
+    iso_path: "/home/{{ cuckoo_user }}/ISO"
+    cuckoo_bin: "/home/{{ cuckoo_user }}/virtualenv/bin/cuckoo"
+    cuckoo_conf: "/home/{{ cuckoo_user }}/.cuckoo/conf"
+    cuckoo_home: "/home/{{ cuckoo_user }}"
+    num_cuckoo_processes: "8"
+    win7_64_boxname: "cuckoo_win7_64"
+    win7_64_ip: "192.168.56.101" # A /24 network is being expected
+    host_ip: "192.168.56.1" # Has to be on the same network as the win7_64_ip
+    choco_source: "https://chocolatey.org/api/v2/"
+    api_key: "{{ lookup('password', '/dev/null chars=ascii_letters,digits') }}"
+    dnsserver_ip: "1.1.1.1"
+    secondary_dnsserver_ip: "1.0.0.1"
+
+  vars_prompt:
+    - name: "cuckoo_pwd"
+      prompt: "Cuckoo user password"
+      private: yes
+      default: "{{ lookup('password', '/dev/null chars=ascii_letters,digits') }}"
+
+  pre_tasks:
+    - name: Install python for Ansible
+      become: yes
+      raw: test -e /usr/bin/python || (apt -y update && apt install -y python-minimal)
+      register: output
+      changed_when: output.stdout != ""
+      tags: always
+    - name: Aka gather facts
+      setup:
+
+
+  roles:
+    - {role: cuckoo, tags: ['cuckoo']}
