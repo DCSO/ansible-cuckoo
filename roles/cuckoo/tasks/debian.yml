@@ -199,7 +199,7 @@
     daemon_reload: yes
 
 - name: Disable app armor for tcpdump
-  shell: aa-disable tcpdump
+  shell: apparmor_parser -R /etc/apparmor.d/usr.sbin.tcpdump
   ignore_errors: true
 
 - name: Set capability on tcpdump
@@ -325,7 +325,7 @@
 
 - name: IMPORTANT
   debug:
-    msg: "This will run a looong time. To see the progress execute systemctl -u malboxes -f on the target machine. If a powershell script on the Windows side fails, an error occurred and the build may never terminate."
+    msg: "This will run a looong time (~1-2h). To see the progress execute tail -f /home/cuckoo/VirtualBox\ VMs/cuckoo_win7_64_0/packerlog.txt on the target machine. If a powershell script on the Windows side fails because of connection problems, the build may never terminate."
 
 - name: Build win7_64 VM
   become: yes
